@@ -4,6 +4,7 @@
   "version": "0.1.0",
   "description": "Enables bot-to-bot @ communication in Feishu group chats",
   "entry": "./index.js",
+  "skills": ["./skills"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

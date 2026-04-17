@@ -66,10 +66,24 @@ Plugin config in `~/.openclaw/openclaw.json` under `plugins.feishu-bot-chat`:
 
 ## Key Files
 
-- **index.js** - Main plugin implementation (~612 lines)
-- **openclaw.plugin.json** - Plugin metadata and config schema
+- **index.js** - Main plugin implementation (~620 lines)
+- **openclaw.plugin.json** - Plugin metadata, config schema, and skills registration
 - **package.json** - Minimal Node.js package definition
 - **README.md** - Chinese documentation
+- **skills/** - A2A collaboration skills for bots (6 skills total)
+
+## Skills
+
+The plugin provides 6 skills to help bots collaborate effectively:
+
+1. **a2a-collaboration-guide** (alwaysActive) - Comprehensive reference for A2A collaboration rules
+2. **a2a-task-decompose** - Task decomposition and delegation strategies
+3. **a2a-result-merge** - Multi-bot result aggregation and conflict resolution
+4. **a2a-interrupt** - Handling interruption and cancellation signals
+5. **a2a-status-check** - Progress tracking and status reporting
+6. **a2a-mode-switch** - Switching between collaboration modes (normal/solo/specified/full)
+
+Skills are automatically loaded by OpenClaw from the `skills/` directory.
 
 ## Dependencies
 
