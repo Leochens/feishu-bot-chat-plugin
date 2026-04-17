@@ -5,7 +5,7 @@ const path = require('path');
 const os = require('os');
 
 const DEBUG_LOG_DIR = path.join(__dirname, 'logs');
-const REGISTRY_DIR = path.join(os.homedir(), '.openclaw', 'feishu-bot-chat');
+const REGISTRY_DIR = path.join(os.homedir(), '.openclaw', 'fbc-registry');
 const REGISTRY_PATH = path.join(REGISTRY_DIR, 'registry.json');
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 

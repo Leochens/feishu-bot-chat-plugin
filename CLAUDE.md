@@ -22,7 +22,7 @@ The plugin implements four OpenClaw hooks that work together:
 ### Auto-Discovery System
 - Automatically discovers all Feishu bots from OpenClaw config (`~/.openclaw/openclaw.json`)
 - Calls Feishu API (`bot/v3/info`) to get bot metadata (name, description)
-- Caches results in `~/.openclaw/feishu-bot-chat/registry.json` (24h TTL)
+- Caches results in `~/.openclaw/fbc-registry/registry.json` (24h TTL)
 - Auto-enables heartbeat for discovered bots to ensure they can receive forwarded messages
 
 ### Chain Depth Tracking
@@ -57,7 +57,7 @@ No automated tests. Test by:
 ### Debugging
 - Debug logs written to `logs/a2a-debug-YYYY-MM-DD.log` (daily rotation)
 - Use `tail -f logs/a2a-debug-$(date +%Y-%m-%d).log` to monitor plugin behavior
-- Check registry cache at `~/.openclaw/feishu-bot-chat/registry.json`
+- Check registry cache at `~/.openclaw/fbc-registry/registry.json`
 
 ### Configuration
 Plugin config in `~/.openclaw/openclaw.json` under `plugins.feishu-bot-chat`:

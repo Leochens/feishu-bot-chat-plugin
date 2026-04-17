@@ -36,7 +36,7 @@ OpenClaw 插件，实现飞书群聊中多个 Bot 之间的 @ 互相通信。
 1. 读取 `bindings` — 找到所有 `channel=feishu` 且有 `accountId` 的 agent
 2. 读取 `channels.feishu.accounts` — 获取每个 account 的 `appId`、`appSecret`
 3. 调用飞书 `bot/v3/info` API — 获取每个 Bot 的 `open_id` 和真实名称
-4. 缓存到 `~/.openclaw/feishu-bot-chat/registry.json`（24 小时有效）
+4. 缓存到 `~/.openclaw/fbc-registry/registry.json`（24 小时有效）
 
 ### 四个 Hook
 
@@ -138,7 +138,7 @@ openclaw plugins enable feishu-bot-chat
 
 ## 自动发现缓存
 
-发现结果缓存在 `~/.openclaw/feishu-bot-chat/registry.json`，24 小时有效。
+发现结果缓存在 `~/.openclaw/fbc-registry/registry.json`，24 小时有效。
 
 - gateway 重启时如果缓存有效，不重复调 API
 - 删除该文件可强制重新发现
