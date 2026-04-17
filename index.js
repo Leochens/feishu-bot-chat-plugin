@@ -4,14 +4,21 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
-const DEBUG_LOG = '/tmp/a2a-debug.log';
+const DEBUG_LOG_DIR = path.join(__dirname, 'logs');
 const REGISTRY_DIR = path.join(os.homedir(), '.openclaw', 'feishu-bot-chat');
 const REGISTRY_PATH = path.join(REGISTRY_DIR, 'registry.json');
 const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // 24h
 
+function getDebugLogPath() {
+  const d = new Date();
+  const date = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return path.join(DEBUG_LOG_DIR, `a2a-debug-${date}.log`);
+}
+
 function debugLog(msg) {
   try {
-    fs.appendFileSync(DEBUG_LOG, `[${new Date().toISOString()}] ${msg}\n`);
+    fs.mkdirSync(DEBUG_LOG_DIR, { recursive: true });
+    fs.appendFileSync(getDebugLogPath(), `[${new Date().toISOString()}] ${msg}\n`);
   } catch (_) { /* ignore */ }
 }
 
@@ -234,6 +241,9 @@ function escapeRegExp(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+let _lastBotSignature = '';
+let _registerCount = 0;
+
 const plugin = {
   id: 'feishu-bot-chat',
   name: 'Feishu Bot Chat',
@@ -254,7 +264,9 @@ const plugin = {
     const feishuAccounts = feishuChannel.accounts || {};
     const feishuDomain = feishuChannel.domain || 'feishu';
 
-    debugLog(`REGISTER called — maxChainDepth=${maxChainDepth}`);
+    if (_registerCount === 0) {
+      debugLog(`REGISTER called — maxChainDepth=${maxChainDepth}`);
+    }
 
     // Shared state: populated sync (manual config) or async (auto-discovery)
     let botRegistry = {};
@@ -277,8 +289,15 @@ const plugin = {
         agentIdSet.add(agentId);
       }
 
-      debugLog(`buildLookups: ${agentIdSet.size} bots ready — ${[...agentIdSet].join(', ')}`);
-      log.info(`[feishu-bot-chat] ${agentIdSet.size} bots active: ${[...agentIdSet].join(', ')}`);
+      const signature = [...agentIdSet].sort().join(',');
+      const isFirstOrChanged = _registerCount === 0 || signature !== _lastBotSignature;
+      _registerCount++;
+      _lastBotSignature = signature;
+
+      if (isFirstOrChanged) {
+        debugLog(`buildLookups: ${agentIdSet.size} bots ready — ${[...agentIdSet].join(', ')}`);
+        log.info(`[feishu-bot-chat] ${agentIdSet.size} bots active: ${[...agentIdSet].join(', ')}`);
+      }
 
       // Auto-enable heartbeat for discovered bots
       ensureHeartbeatEnabled([...agentIdSet]);
@@ -361,7 +380,7 @@ const plugin = {
       if (otherBots.length === 0) return;
 
       const botList = otherBots.join('\n');
-      const instruction = `[A2A Bridge — 群内协作规则]\n\n默认行为：\n- 正常情况下不要主动 @ 其他机器人\n- 每次回复最多 @ 1 个机器人\n\n重要：区分"提到"和"请求"\n- 如果你只是在回复中提到某个机器人，直接用它的名字（如"文案助手"），不要用 <at> 标签\n- 只有当你确实需要对方执行任务、回答问题时，才使用 <at> 标签\n- <at> 标签会触发实际的消息转发，所以不要随意使用\n\n触发协作：\n- 当用户提到"群内协作"、"分配任务"、"协作完成"等关键字时，你可以根据任务需要，主动 @ 合适的机器人分配子任务\n- 当用户明确要求你联系某个机器人时，也可以 @\n\n回复规则：\n- 如果你是被其他机器人通过 [A2A Bridge 转发] @ 的（消息类型为"任务请求"），处理完成后必须在回复末尾 @ 回发起者机器人，将结果汇报给它\n- 如果你收到的是"结果回传"类型的消息，说明对方已经完成了你分配的任务并把结果告诉你了，此时绝对不要再 @ 回对方，直接整理结果回复用户即可\n- 如果你是被用户直接 @ 的，不需要 @ 任何机器人（除非用户要求或触发了协作关键字）\n\n当你确实需要 @ 其他机器人时，必须直接在回复正文中写 <at> 标签，不要使用 feishu_im_user_message 工具。\n\n可用机器人列表（仅供参考，不要主动 @ 他们）：\n${botList}`;
+      const instruction = `[A2A Bridge — 群内协作规则]\n\n默认行为：\n- 正常情况下不要主动 @ 其他机器人\n- 每次回复最多 @ 1 个机器人\n\n重要：区分"提到"和"请求"\n- 如果你只是在回复中提到某个机器人，直接用它的名字（如"文案助手"），不要用 <at> 标签\n- 只有当你确实需要对方执行任务、回答问题时，才使用 <at> 标签\n- <at> 标签会触发实际的消息转发，所以不要随意使用\n\n触发协作：\n- 当用户提到"群内协作"、"分配任务"、"协作完成"等关键字时，你可以根据任务需要，主动 @ 合适的机器人分配子任务\n- 当用户明确要求你联系某个机器人时，也可以 @\n\n回复规则：\n- 如果你是被其他机器人通过 [A2A Bridge 转发] @ 的（消息类型为"任务请求"），处理完成后必须在回复末尾 @ 回发起者机器人，将结果汇报给它\n- 如果你收到的是"结果回传"类型的消息，说明对方已经完成了你分配的任务并把结果告诉你了，此时绝对不要再 @ 回对方，直接整理结果回复用户即可\n- 如果你是被用户直接 @ 的，不需要 @ 任何机器人（除非用户要求或触发了协作关键字）\n- 如果你 @ 其他机器人只是为了通知或共享信息，不需要对方回复或执行任务，请在消息中明确说明"仅供参考，无需回复"，这样对方就不会 @ 你触发不必要的回传\n\n通知标记（工程化控制）：\n- 如果你 @ 其他机器人只是单向通知、共享结果，不需要对方回复或 @ 你，请在消息中加上 🔕仅通知 标记\n- 插件检测到此标记后，转发时不会要求对方 @ 回你，从根本上避免不必要的回传\n- 示例：「🔕仅通知 <at ...>xxx</at> 排期已确认，按原计划推进即可」\n\n当你确实需要 @ 其他机器人时，必须直接在回复正文中写 <at> 标签，不要使用 feishu_im_user_message 工具。\n\n可用机器人列表（仅供参考，不要主动 @ 他们）：\n${botList}`;
 
       return { appendSystemContext: instruction };
     });
@@ -467,10 +486,13 @@ const plugin = {
 
         // depth=1: 初始任务请求，目标处理完后需要 @ 回发起者
         // depth>1: 结果回传，目标收到后直接整理结果，不要再 @ 回去
+        // 🔕仅通知 / 🚫回传: 发起者明确标记不需要回传
         const isResultReturn = currentDepth > 1;
+        const isNotifyOnly = /🔕仅通知|🚫回传/.test(fullText);
         let contextMessage;
-        if (isResultReturn) {
-          contextMessage = `[A2A Bridge 转发 — 结果回传] 来自「${senderName}」的任务执行结果：\n\n${fullText}\n\n对方已完成你之前分配的任务，请直接整理结果回复用户，不要再 @ 回对方。`;
+        if (isResultReturn || isNotifyOnly) {
+          const label = isNotifyOnly ? '仅通知' : '结果回传';
+          contextMessage = `[A2A Bridge 转发 — ${label}] 来自「${senderName}」的消息：\n\n${fullText}\n\n${isNotifyOnly ? '对方标记了🔕仅通知，表示这条消息仅供参考，不需要你回复或 @ 回对方。请阅读后自行处理即可。' : '对方已完成你之前分配的任务，请直接整理结果回复用户，不要再 @ 回对方。'}`;
         } else {
           const replyInstruction = senderAtTag
             ? `\n\n处理完成后，请在回复末尾 @ 回发起者 ${senderAtTag}，将你的结果汇报给它。`
@@ -575,6 +597,12 @@ const plugin = {
         }
       }
 
+      // Add text fallback after <at> tags for streaming card visibility
+      content = content.replace(
+        /<at user_id="([^"]+)">([^<]+)<\/at>(?!\s*\([^)]+\))/g,
+        (_, userId, name) => `<at user_id="${userId}">${name}</at> (${name})`
+      );
+
       if (content !== event.content) {
         return { content };
       }
@@ -603,8 +631,10 @@ const plugin = {
       }
     });
 
-    debugLog('All hooks registered successfully');
-    log.info('[feishu-bot-chat] All hooks registered');
+    if (_registerCount === 0) {
+      debugLog('All hooks registered successfully');
+      log.info('[feishu-bot-chat] All hooks registered');
+    }
   }
 };
 

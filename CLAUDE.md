@@ -55,8 +55,8 @@ No automated tests. Test by:
 4. Testing in Feishu group chat with multiple bots
 
 ### Debugging
-- Debug logs written to `/tmp/a2a-debug.log`
-- Use `tail -f /tmp/a2a-debug.log` to monitor plugin behavior
+- Debug logs written to `logs/a2a-debug-YYYY-MM-DD.log` (daily rotation)
+- Use `tail -f logs/a2a-debug-$(date +%Y-%m-%d).log` to monitor plugin behavior
 - Check registry cache at `~/.openclaw/feishu-bot-chat/registry.json`
 
 ### Configuration
