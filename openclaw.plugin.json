@@ -1,0 +1,44 @@
+{
+  "id": "feishu-bot-chat",
+  "name": "Feishu Bot Chat",
+  "version": "0.1.0",
+  "description": "Enables bot-to-bot @ communication in Feishu group chats",
+  "entry": "./index.js",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "maxChainDepth": {
+        "type": "number",
+        "default": 3,
+        "description": "Maximum bot-to-bot call chain depth"
+      },
+      "botRegistry": {
+        "type": "object",
+        "description": "Registry of bots that can participate in A2A communication",
+        "additionalProperties": {
+          "type": "object",
+          "required": ["accountId", "botOpenId", "botName"],
+          "properties": {
+            "accountId": {
+              "type": "string",
+              "description": "Feishu account ID"
+            },
+            "botOpenId": {
+              "type": "string",
+              "description": "Bot's Feishu open_id (ou_xxx)"
+            },
+            "botName": {
+              "type": "string",
+              "description": "Bot display name for @ mentions"
+            },
+            "description": {
+              "type": "string",
+              "description": "Bot role description"
+            }
+          }
+        }
+      }
+    }
+  }
+}

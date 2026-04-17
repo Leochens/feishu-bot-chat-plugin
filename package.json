@@ -1,0 +1,9 @@
+{
+  "name": "feishu-bot-chat",
+  "version": "0.1.0",
+  "description": "Feishu Bot Chat plugin for OpenClaw — enables bot-to-bot @ communication in Feishu group chats",
+  "main": "index.js",
+  "openclaw": {
+    "extensions": ["./index.js"]
+  }
+}
