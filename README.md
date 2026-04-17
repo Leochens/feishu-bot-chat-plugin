@@ -6,7 +6,7 @@ OpenClaw 插件，实现飞书群聊中多个 Bot 之间的 @ 互相通信。
 
 飞书有两个平台限制导致 Bot 之间无法直接对话：
 
-1. **飞书不会把 Bot 发送的消息通过 webhook 投递给其他 Bot** — 当经纪人 Bot 在群里 @ 文案助手 Bot 时，文案助手的 webhook 不会收到这条消息
+1. **飞书不会把 Bot 发送的消息通过 webhook 投递给其他 Bot** — 当 Bot A 在群里 @ Bot B 时，Bot B 的 webhook 不会收到这条消息
 2. **飞书 streaming 模式会绕过 `message_sending` hook** — 无法在消息发送阶段拦截和转发
 
 这个插件通过 OpenClaw 内部的 system event 队列 + heartbeat 唤醒机制，在 Bot 之间建立了一条"内部通信通道"。
@@ -16,15 +16,15 @@ OpenClaw 插件，实现飞书群聊中多个 Bot 之间的 @ 互相通信。
 ### 核心流程
 
 ```
-用户 @ 经纪人 → 经纪人回复并 @ 文案助手
+用户 @ Bot A → Bot A 回复并 @ Bot B
                          ↓
               llm_output hook 检测到 <at> 标签
                          ↓
-              enqueueSystemEvent 写入消息到文案助手的 session 队列
+              enqueueSystemEvent 写入消息到 Bot B 的 session 队列
                          ↓
-              runHeartbeatOnce 唤醒文案助手（带 retry）
+              runHeartbeatOnce 唤醒 Bot B（带 retry）
                          ↓
-              文案助手消费 system event，生成回复并 @ 经纪人
+              Bot B 消费 system event，生成回复并 @ Bot A
                          ↓
               同样的流程反向触发 → 形成对话链
 ```
@@ -68,7 +68,13 @@ heartbeat 运行时有两道门控：
 ## 安装
 
 ```bash
+# 从 npm 安装
+openclaw plugins install feishu-bot-chat
+
+# 或从 GitHub 安装
 openclaw plugins install github:Leochens/feishu-bot-chat-plugin
+
+# 启用插件
 openclaw plugins enable feishu-bot-chat
 ```
 
@@ -140,14 +146,14 @@ openclaw plugins enable feishu-bot-chat
 
 ## 调试
 
-插件会将详细日志写入 `/tmp/a2a-debug.log`，包括：
+插件会将详细日志写入 `logs/a2a-debug-YYYY-MM-DD.log`（按天轮转），包括：
 - 自动发现过程和结果
 - 每次 `llm_output` 触发的详情
 - `enqueueSystemEvent` 和 `runHeartbeatOnce` 的调用结果
 - 转发目标和链深度
 
 ```bash
-tail -f /tmp/a2a-debug.log
+tail -f logs/a2a-debug-$(date +%Y-%m-%d).log
 ```
 
 ## 限制
@@ -156,3 +162,18 @@ tail -f /tmp/a2a-debug.log
 - 自动发现需要 agent 在 bindings 中有 `accountId` 匹配（仅 peer 匹配的 binding 不会被发现）
 - Bot 必须使用飞书 `<at>` 标签格式来 @ 其他 Bot
 - 依赖 OpenClaw 的 `runHeartbeatOnce` 和 `enqueueSystemEvent` 内部 API
+
+## 内置 Skills
+
+插件提供 6 个 A2A 协作 Skill，群聊中自动生效：
+
+| Skill | 说明 |
+|-------|------|
+| `a2a-collaboration-guide` | 协作规则速查手册（始终激活） |
+| `a2a-task-decompose` | 任务分解与分配指南 |
+| `a2a-result-merge` | 多 bot 结果汇总 |
+| `a2a-interrupt` | 协作中断与取消处理 |
+| `a2a-status-check` | 协作状态查询与进度汇报 |
+| `a2a-mode-switch` | 协作模式切换（独立/指定/全力） |
+
+这些 Skill 仅在群聊中生效，私聊时不会加载。

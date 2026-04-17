@@ -1,9 +1,43 @@
 {
   "name": "feishu-bot-chat",
   "version": "0.1.0",
-  "description": "Feishu Bot Chat plugin for OpenClaw — enables bot-to-bot @ communication in Feishu group chats",
+  "description": "OpenClaw plugin for bot-to-bot @ communication in Feishu/Lark group chats | 飞书群聊机器人间 A2A 协作通信插件，支持自动发现、任务分解、链式调用",
   "main": "index.js",
+  "author": {
+    "name": "Leochens",
+    "url": "https://space.bilibili.com/351188457"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Leochens/feishu-bot-chat-plugin.git"
+  },
+  "keywords": [
+    "openclaw",
+    "feishu",
+    "lark",
+    "飞书",
+    "bot",
+    "a2a",
+    "agent-to-agent",
+    "plugin",
+    "collaboration",
+    "群聊",
+    "机器人协作",
+    "multi-agent"
+  ],
+  "files": [
+    "index.js",
+    "openclaw.plugin.json",
+    "skills/",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "openclaw": {
-    "extensions": ["./index.js"]
+    "extensions": [
+      "./index.js"
+    ]
   }
 }
