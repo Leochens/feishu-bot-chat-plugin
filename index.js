@@ -380,7 +380,7 @@ const plugin = {
       if (otherBots.length === 0) return;
 
       const botList = otherBots.join('\n');
-      const instruction = `[A2A Bridge — 群内协作规则]\n\n默认行为：\n- 正常情况下不要主动 @ 其他机器人\n- 每次回复最多 @ 1 个机器人\n\n重要：区分"提到"和"请求"\n- 如果你只是在回复中提到某个机器人，直接用它的名字（如"文案助手"），不要用 <at> 标签\n- 只有当你确实需要对方执行任务、回答问题时，才使用 <at> 标签\n- <at> 标签会触发实际的消息转发，所以不要随意使用\n\n触发协作：\n- 当用户提到"群内协作"、"分配任务"、"协作完成"等关键字时，你可以根据任务需要，主动 @ 合适的机器人分配子任务\n- 当用户明确要求你联系某个机器人时，也可以 @\n\n回复规则：\n- 如果你是被其他机器人通过 [A2A Bridge 转发] @ 的（消息类型为"任务请求"），处理完成后必须在回复末尾 @ 回发起者机器人，将结果汇报给它\n- 如果你收到的是"结果回传"类型的消息，说明对方已经完成了你分配的任务并把结果告诉你了，此时绝对不要再 @ 回对方，直接整理结果回复用户即可\n- 如果你是被用户直接 @ 的，不需要 @ 任何机器人（除非用户要求或触发了协作关键字）\n- 如果你 @ 其他机器人只是为了通知或共享信息，不需要对方回复或执行任务，请在消息中明确说明"仅供参考，无需回复"，这样对方就不会 @ 你触发不必要的回传\n\n通知标记（工程化控制）：\n- 如果你 @ 其他机器人只是单向通知、共享结果，不需要对方回复或 @ 你，请在消息中加上 🔕仅通知 标记\n- 插件检测到此标记后，转发时不会要求对方 @ 回你，从根本上避免不必要的回传\n- 示例：「🔕仅通知 <at ...>xxx</at> 排期已确认，按原计划推进即可」\n\n当你确实需要 @ 其他机器人时，必须直接在回复正文中写 <at> 标签，不要使用 feishu_im_user_message 工具。\n\n可用机器人列表（仅供参考，不要主动 @ 他们）：\n${botList}`;
+      const instruction = `[A2A Bridge — 群内协作规则]\n\n默认行为：\n- 正常情况下不要主动 @ 其他机器人\n- 每次回复最多 @ 1 个机器人\n\n重要：区分"提到"和"请求"\n- 如果你只是在回复中提到某个机器人，直接用它的名字（如"文案助手"），不要用 <at> 标签\n- 只有当你确实需要对方执行任务、回答问题时，才使用 <at> 标签\n- <at> 标签会触发实际的消息转发，所以不要随意使用\n\n触发协作：\n- 当用户提到"群内协作"、"分配任务"、"协作完成"等关键字时，你可以根据任务需要，主动 @ 合适的机器人分配子任务\n- 当用户明确要求你联系某个机器人时，也可以 @\n\n回复规则：\n- 如果你是被其他机器人通过 [A2A Bridge 转发] @ 的（消息类型为"任务请求"），请使用 message 工具将处理结果发送到群聊（转发消息中会包含具体的 target 参数），并按转发消息中的指示 @ 回发起者\n- 如果你收到的是"结果回传"类型的消息，说明对方已经完成了你分配的任务并把结果告诉你了，此时绝对不要再 @ 回对方，直接整理结果回复用户即可\n- 如果你是被用户直接 @ 的，不需要 @ 任何机器人（除非用户要求或触发了协作关键字）\n- 如果你 @ 其他机器人只是为了通知或共享信息，不需要对方回复或执行任务，请在消息中明确说明"仅供参考，无需回复"，这样对方就不会 @ 你触发不必要的回传\n\n通知标记（工程化控制）：\n- 如果你 @ 其他机器人只是单向通知、共享结果，不需要对方回复或 @ 你，请在消息中加上 🔕仅通知 标记\n- 插件检测到此标记后，转发时不会要求对方 @ 回你，从根本上避免不必要的回传\n- 示例：「🔕仅通知 <at ...>xxx</at> 排期已确认，按原计划推进即可」\n\n当你确实需要 @ 其他机器人时，必须直接在回复正文中写 <at> 标签，不要使用 feishu_im_user_message 工具。\n\n可用机器人列表（仅供参考，不要主动 @ 他们）：\n${botList}`;
 
       return { appendSystemContext: instruction };
     });
@@ -482,7 +482,6 @@ const plugin = {
 
         const senderBot = botRegistry[ctx.agentId];
         const senderName = senderBot ? senderBot.botName : ctx.agentId;
-        const senderAtTag = senderBot ? `<at user_id="${senderBot.botOpenId}">${senderBot.botName}</at>` : '';
 
         // depth=1: 初始任务请求，目标处理完后需要 @ 回发起者
         // depth>1: 结果回传，目标收到后直接整理结果，不要再 @ 回去
@@ -494,10 +493,8 @@ const plugin = {
           const label = isNotifyOnly ? '仅通知' : '结果回传';
           contextMessage = `[A2A Bridge 转发 — ${label}] 来自「${senderName}」的消息：\n\n${fullText}\n\n${isNotifyOnly ? '对方标记了🔕仅通知，表示这条消息仅供参考，不需要你回复或 @ 回对方。请阅读后自行处理即可。' : '对方已完成你之前分配的任务，请直接整理结果回复用户，不要再 @ 回对方。'}`;
         } else {
-          const replyInstruction = senderAtTag
-            ? `\n\n处理完成后，请在回复末尾 @ 回发起者 ${senderAtTag}，将你的结果汇报给它。`
-            : '';
-          contextMessage = `[A2A Bridge 转发 — 任务请求] 来自「${senderName}」在群聊中的消息：\n\n${fullText}\n\n请先发一条简短确认消息（如"✍️ 收到，马上处理"），然后再根据上述内容回复完整内容。直接在群聊中发送你的回复。${replyInstruction}`;
+          const senderAtTag = senderBot?.botOpenId ? `<at user_id="${senderBot.botOpenId}">${senderName}</at>` : senderName;
+          contextMessage = `[A2A Bridge 转发 — 任务请求] 来自「${senderName}」在群聊中的消息：\n\n${fullText}\n\n请使用 message 工具回复到群聊。工具调用示例：\n\`\`\`json\n{\n  "action": "send",\n  "target": "chat:${chatId}",\n  "message": "你的回复内容（在末尾 @ 回发起者 ${senderAtTag}）"\n}\n\`\`\`\n\n注意：\n1. target 必须是 "chat:${chatId}"（不要修改这个 ID）\n2. message 字段是必需的，包含你的完整回复\n3. 插件已代你发送了确认消息"✍️ 收到，马上处理"，你只需发送处理结果`;
         }
 
         debugLog(`[llm_output] Forwarding to ${target.agentId}, sessionKey=${targetSessionKey}, depth=${currentDepth}`);

@@ -42,6 +42,11 @@ The plugin implements four OpenClaw hooks that work together:
 - Sends immediate confirmation ("✍️ 收到，马上处理") when forwarding task requests (depth=1)
 - No confirmation for result returns (depth>1) to avoid noise
 
+**System Event Context Key:**
+- Uses `contextKey: 'cron:a2a-bridge'` when enqueuing forwarded messages
+- The `cron:` prefix is required to pass OpenClaw's heartbeat gate (`shouldInspectPendingEvents`)
+- Without this prefix, the target bot's heartbeat won't consume the queued event
+
 ## Development
 
 ### No Build System
@@ -55,9 +60,12 @@ No automated tests. Test by:
 4. Testing in Feishu group chat with multiple bots
 
 ### Debugging
-- Debug logs written to `logs/a2a-debug-YYYY-MM-DD.log` (daily rotation)
-- Use `tail -f logs/a2a-debug-$(date +%Y-%m-%d).log` to monitor plugin behavior
-- Check registry cache at `~/.openclaw/fbc-registry/registry.json`
+Two log files are written daily to `logs/`:
+- `a2a-debug-YYYY-MM-DD.log` - Human-readable debug logs (discovery, forwarding, errors)
+- `a2a-events-YYYY-MM-DD.jsonl` - Structured event log (JSONL format)
+
+Monitor in real-time: `tail -f logs/a2a-debug-$(date +%Y-%m-%d).log`
+Check registry cache: `~/.openclaw/fbc-registry/registry.json` (24h TTL)
 
 ### Configuration
 Plugin config in `~/.openclaw/openclaw.json` under `plugins.feishu-bot-chat`:
@@ -66,11 +74,21 @@ Plugin config in `~/.openclaw/openclaw.json` under `plugins.feishu-bot-chat`:
 
 ## Key Files
 
-- **index.js** - Main plugin implementation (~620 lines)
+- **index.js** - Main plugin implementation (~640 lines)
 - **openclaw.plugin.json** - Plugin metadata, config schema, and skills registration
-- **package.json** - Minimal Node.js package definition
+- **package.json** - Node.js >=18.0.0, OpenClaw >=2026.3.24-beta.2
 - **README.md** - Chinese documentation
 - **skills/** - A2A collaboration skills for bots (6 skills total)
+
+## Internal State
+
+The plugin maintains several in-memory lookup maps built during `register()`:
+- `botRegistry` - agentId → {accountId, botOpenId, botName}
+- `chainDepthMap` - sessionKey → depth (loop prevention)
+- `forwardedRuns` - Set of processed runIds (deduplication)
+- `accountToBotMap`, `botOpenIdSet`, `botOpenIdToAgentMap`, `agentIdSet` - reverse lookup tables
+
+These are rebuilt on each gateway restart from auto-discovery results.
 
 ## Skills
 
