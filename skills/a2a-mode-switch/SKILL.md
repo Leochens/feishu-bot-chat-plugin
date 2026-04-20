@@ -8,6 +8,7 @@ description: |
   (2) 用户想切换协作策略（优先速度 vs 优先质量）
   (3) 用户想恢复协作模式
   (4) 用户想指定只与某些 bot 协作
+alwaysActive: true
 ---
 
 # A2A 协作模式切换

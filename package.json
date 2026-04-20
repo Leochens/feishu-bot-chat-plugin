@@ -1,6 +1,6 @@
 {
   "name": "feishu-bot-chat",
-  "version": "0.1.2",
+  "version": "0.1.7",
   "description": "OpenClaw plugin for bot-to-bot @ communication in Feishu/Lark group chats | 飞书群聊机器人间 A2A 协作通信插件，支持自动发现、任务分解、链式调用",
   "main": "index.js",
   "author": {
@@ -26,6 +26,9 @@
     "机器人协作",
     "multi-agent"
   ],
+  "scripts": {
+    "build": "node scripts/build.js"
+  },
   "files": [
     "index.js",
     "openclaw.plugin.json",

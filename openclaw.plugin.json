@@ -1,19 +1,14 @@
 {
   "id": "feishu-bot-chat",
   "name": "Feishu Bot Chat",
-  "version": "0.1.0",
-  "description": "Enables bot-to-bot @ communication in Feishu group chats",
+  "version": "0.2.0",
+  "description": "Enables bot-to-bot @ communication in Feishu group chats via native delivery",
   "entry": "./index.js",
   "skills": ["./skills"],
   "configSchema": {
     "type": "object",
-    "additionalProperties": false,
+    "additionalProperties": true,
     "properties": {
-      "maxChainDepth": {
-        "type": "number",
-        "default": 3,
-        "description": "Maximum bot-to-bot call chain depth"
-      },
       "botRegistry": {
         "type": "object",
         "description": "Registry of bots that can participate in A2A communication",

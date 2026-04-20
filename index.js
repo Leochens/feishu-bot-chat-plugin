@@ -26,10 +26,6 @@ function debugLog(msg) {
 // Auto-discovery: derive botRegistry from OpenClaw config + Feishu API
 // ---------------------------------------------------------------------------
 
-/**
- * Read cached registry if still valid.
- * Returns { bots } or null.
- */
 function readCache() {
   try {
     const raw = fs.readFileSync(REGISTRY_PATH, 'utf8');
@@ -56,9 +52,6 @@ function writeCache(bots) {
   }
 }
 
-/**
- * Get tenant_access_token from Feishu API.
- */
 async function getTenantToken(appId, appSecret, domain) {
   const base = domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn';
   const url = `${base}/open-apis/auth/v3/tenant_access_token/internal`;
@@ -72,34 +65,6 @@ async function getTenantToken(appId, appSecret, domain) {
   return json.tenant_access_token;
 }
 
-/**
- * Send a text message to a Feishu chat using a specific bot's token.
- */
-async function sendFeishuMessage(token, chatId, text, domain) {
-  const base = domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn';
-  const url = `${base}/open-apis/im/v1/messages?receive_id_type=chat_id`;
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({
-      receive_id: chatId,
-      msg_type: 'text',
-      content: JSON.stringify({ text }),
-    }),
-  });
-  const json = await res.json();
-  if (json.code !== 0) {
-    debugLog(`[sendFeishuMessage] Failed: ${json.msg}`);
-  }
-  return json;
-}
-
-/**
- * Get bot info (open_id, bot_name) from Feishu API.
- */
 async function getBotInfo(token, domain) {
   const base = domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn';
   const url = `${base}/open-apis/bot/v3/info`;
@@ -112,54 +77,12 @@ async function getBotInfo(token, domain) {
   return { botOpenId: bot.open_id, botName: bot.app_name || bot.bot_name };
 }
 
-/**
- * Get all bot members in a group chat.
- * Returns a Set of open_ids for bots in the chat.
- */
-async function getGroupBotMembers(token, chatId, domain) {
-  const base = domain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn';
-  const botOpenIds = new Set();
-  let pageToken = '';
-  for (let i = 0; i < 10; i++) { // max 10 pages
-    const params = new URLSearchParams({ member_id_type: 'open_id', page_size: '100' });
-    if (pageToken) params.set('page_token', pageToken);
-    const url = `${base}/open-apis/im/v1/chats/${chatId}/members?${params}`;
-    const res = await fetch(url, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    const json = await res.json();
-    if (json.code !== 0) {
-      debugLog(`[getGroupBotMembers] API error: ${json.msg}`);
-      break;
-    }
-    const items = json.data?.items || [];
-    for (const m of items) {
-      // member_type: "bot" for bots
-      if (m.member_type === 'bot' && m.member_id) {
-        botOpenIds.add(m.member_id);
-      }
-    }
-    if (!json.data?.has_more) break;
-    pageToken = json.data.page_token || '';
-  }
-  return botOpenIds;
-}
-
-/**
- * Discover all Feishu bots from OpenClaw config.
- *
- * 1. Read bindings → filter feishu channel with accountId → agentId→accountId map
- * 2. Read channels.feishu.accounts → accountId→{appId, appSecret, botName}
- * 3. Check cache; if miss, call Feishu API for each account to get botOpenId
- * 4. Write cache and return botRegistry
- */
 async function discoverBots(config, log) {
   const bindings = config.bindings || [];
   const feishuChannel = config.channels?.feishu || {};
   const accounts = feishuChannel.accounts || {};
   const domain = feishuChannel.domain || 'feishu';
 
-  // Step 1: agentId → accountId (only bindings with explicit accountId match)
   const agentAccountMap = new Map();
   for (const b of bindings) {
     if (b.match?.channel === 'feishu' && b.match?.accountId) {
@@ -170,7 +93,6 @@ async function discoverBots(config, log) {
   debugLog(`[discover] Found ${agentAccountMap.size} feishu agent-account bindings`);
   if (agentAccountMap.size === 0) return {};
 
-  // Step 2: filter accounts that have appId+appSecret (skip "default" etc.)
   const validAccounts = new Map();
   for (const [accountId, acct] of Object.entries(accounts)) {
     if (acct.appId && acct.appSecret) {
@@ -178,10 +100,8 @@ async function discoverBots(config, log) {
     }
   }
 
-  // Step 3: check cache
   const cached = readCache();
   if (cached?.bots) {
-    // Validate cache still covers all current bindings
     const allCovered = [...agentAccountMap.keys()].every(agentId => cached.bots[agentId]);
     if (allCovered) {
       return cached.bots;
@@ -189,9 +109,8 @@ async function discoverBots(config, log) {
     debugLog(`[discover] Cache incomplete, re-discovering`);
   }
 
-  // Step 4: call Feishu API for each account
   const bots = {};
-  const tokenCache = new Map(); // accountId → token (avoid duplicate calls for same account)
+  const tokenCache = new Map();
 
   for (const [agentId, accountId] of agentAccountMap) {
     const acct = validAccounts.get(accountId);
@@ -218,7 +137,6 @@ async function discoverBots(config, log) {
     } catch (e) {
       debugLog(`[discover] Failed for agent=${agentId}, accountId=${accountId}: ${e.message}`);
       log.warn(`[feishu-bot-chat] Failed to discover bot for ${agentId}: ${e.message}`);
-      // Try to use cached entry if available
       if (cached?.bots?.[agentId]) {
         bots[agentId] = cached.bots[agentId];
         debugLog(`[discover] Using stale cache for agent=${agentId}`);
@@ -247,43 +165,86 @@ let _registerCount = 0;
 const plugin = {
   id: 'feishu-bot-chat',
   name: 'Feishu Bot Chat',
-  description: 'Enables bot-to-bot @ communication in Feishu group chats',
+  description: 'Enables bot-to-bot @ communication in Feishu group chats via native delivery',
 
   register(api) {
     const cfg = api.pluginConfig ?? {};
-    const maxChainDepth = cfg.maxChainDepth ?? 3;
     const log = api.logger;
 
-    // Chain depth tracking: sessionKey -> depth
-    const chainDepthMap = new Map();
-    // Track which runIds we've already forwarded to avoid duplicates
-    const forwardedRuns = new Set();
-
-    // Feishu account config for sending messages directly
-    const feishuChannel = api.config?.channels?.feishu || {};
-    const feishuAccounts = feishuChannel.accounts || {};
-    const feishuDomain = feishuChannel.domain || 'feishu';
-
     if (_registerCount === 0) {
-      debugLog(`REGISTER called — maxChainDepth=${maxChainDepth}`);
+      debugLog(`REGISTER called`);
     }
 
-    // Shared state: populated sync (manual config) or async (auto-discovery)
+    // Shared state
     let botRegistry = {};
-    const accountToBotMap = new Map();
     const botOpenIdSet = new Set();
     const botOpenIdToAgentMap = new Map();
     const agentIdSet = new Set();
 
+    // Track which group chats have confirmed native bot-to-bot delivery
+    const nativeA2AChats = new Set();
+
+    // Cache: chatId → { botOpenIds: Set, fetchedAt: number }
+    const groupMemberCache = new Map();
+    const GROUP_MEMBER_CACHE_TTL = 10 * 60 * 1000; // 10 min
+
+    // Feishu account config for API calls
+    const feishuChannel = api.config?.channels?.feishu || {};
+    const feishuAccounts = feishuChannel.accounts || {};
+    const feishuDomain = feishuChannel.domain || 'feishu';
+
+    async function getGroupBotOpenIds(chatId) {
+      const cached = groupMemberCache.get(chatId);
+      if (cached && Date.now() - cached.fetchedAt < GROUP_MEMBER_CACHE_TTL) {
+        return cached.botOpenIds;
+      }
+
+      // Get a token from any valid account
+      let token = null;
+      for (const [, acct] of Object.entries(feishuAccounts)) {
+        if (acct.appId && acct.appSecret) {
+          try {
+            token = await getTenantToken(acct.appId, acct.appSecret, feishuDomain);
+            break;
+          } catch (_) { /* try next */ }
+        }
+      }
+      if (!token) return null;
+
+      const base = feishuDomain === 'lark' ? 'https://open.larksuite.com' : 'https://open.feishu.cn';
+      const memberOpenIds = new Set();
+      let pageToken = '';
+      for (let i = 0; i < 10; i++) {
+        const params = new URLSearchParams({ member_id_type: 'open_id', page_size: '100' });
+        if (pageToken) params.set('page_token', pageToken);
+        const url = `${base}/open-apis/im/v1/chats/${chatId}/members?${params}`;
+        const res = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
+        const json = await res.json();
+        if (json.code !== 0) {
+          debugLog(`[getGroupBotOpenIds] API error for chat=${chatId}: ${json.msg}`);
+          return null;
+        }
+        for (const m of (json.data?.items || [])) {
+          if (m.member_type === 'bot' && m.member_id) {
+            memberOpenIds.add(m.member_id);
+          }
+        }
+        if (!json.data?.has_more) break;
+        pageToken = json.data.page_token || '';
+      }
+
+      groupMemberCache.set(chatId, { botOpenIds: memberOpenIds, fetchedAt: Date.now() });
+      debugLog(`[getGroupBotOpenIds] chat=${chatId} has ${memberOpenIds.size} bots: ${[...memberOpenIds].join(', ')}`);
+      return memberOpenIds;
+    }
+
     function buildLookups(registry) {
       botRegistry = registry;
-      accountToBotMap.clear();
       botOpenIdSet.clear();
       botOpenIdToAgentMap.clear();
       agentIdSet.clear();
 
       for (const [agentId, bot] of Object.entries(registry)) {
-        accountToBotMap.set(bot.accountId, { agentId, ...bot });
         botOpenIdSet.add(bot.botOpenId);
         botOpenIdToAgentMap.set(bot.botOpenId, { agentId, ...bot });
         agentIdSet.add(agentId);
@@ -298,56 +259,13 @@ const plugin = {
         debugLog(`buildLookups: ${agentIdSet.size} bots ready — ${[...agentIdSet].join(', ')}`);
         log.info(`[feishu-bot-chat] ${agentIdSet.size} bots active: ${[...agentIdSet].join(', ')}`);
       }
-
-      // Auto-enable heartbeat for discovered bots
-      ensureHeartbeatEnabled([...agentIdSet]);
-    }
-
-    function ensureHeartbeatEnabled(agentIds) {
-      if (agentIds.length === 0) return;
-
-      try {
-        const configPath = path.join(os.homedir(), '.openclaw', 'openclaw.json');
-        const configRaw = fs.readFileSync(configPath, 'utf8');
-        const config = JSON.parse(configRaw);
-
-        if (!config.agents) config.agents = {};
-        if (!config.agents.list) config.agents.list = [];
-
-        let modified = false;
-        for (const agentId of agentIds) {
-          let agent = config.agents.list.find(a => a.id === agentId);
-          if (!agent) {
-            agent = { id: agentId };
-            config.agents.list.push(agent);
-            modified = true;
-          }
-          if (!agent.heartbeat) {
-            agent.heartbeat = { every: '999m' };
-            modified = true;
-            debugLog(`[ensureHeartbeat] Added heartbeat to ${agentId}`);
-            log.info(`[feishu-bot-chat] Auto-enabled heartbeat for ${agentId}`);
-          }
-        }
-
-        if (modified) {
-          fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-          debugLog(`[ensureHeartbeat] Updated config with heartbeat for ${agentIds.length} agents`);
-          log.warn('[feishu-bot-chat] Updated openclaw.json with heartbeat config — restart gateway to apply');
-        }
-      } catch (e) {
-        debugLog(`[ensureHeartbeat] Failed: ${e.message}`);
-        log.error(`[feishu-bot-chat] Failed to auto-enable heartbeat: ${e.message}`);
-      }
     }
 
     // Determine botRegistry source
     if (cfg.botRegistry && Object.keys(cfg.botRegistry).length > 0) {
-      // Manual config takes priority
       debugLog(`Using manual botRegistry with ${Object.keys(cfg.botRegistry).length} bots`);
       buildLookups(cfg.botRegistry);
     } else {
-      // Auto-discover (async — hooks registered immediately, lookups populated when ready)
       debugLog(`No manual botRegistry, starting auto-discovery...`);
       discoverBots(api.config, log).then(registry => {
         if (Object.keys(registry).length > 0) {
@@ -362,240 +280,116 @@ const plugin = {
     }
 
     // ========================================================================
-    // Hook 1: before_prompt_build — 注入可用 Bot 列表
+    // Hook 1: before_prompt_build — 注入可用 Bot 列表（仅群内成员）
     // ========================================================================
-    api.on('before_prompt_build', (event, ctx) => {
+    api.on('before_prompt_build', async (event, ctx) => {
+      debugLog(`[before_prompt_build] event=${JSON.stringify({ channelId: ctx.channelId, isGroup: event.isGroup, agentId: ctx.agentId, conversationId: event.conversationId, sessionKey: ctx.sessionKey })}`);
+
       if (ctx.channelId !== 'feishu') return;
 
       const currentAgentId = ctx.agentId;
 
-      const otherBots = Object.entries(botRegistry)
-        .filter(([agentId]) => agentId !== currentAgentId)
-        .map(([agentId, bot]) => {
+      // Extract chatId from sessionKey
+      const sessionKey = ctx.sessionKey || '';
+      const groupMatch = sessionKey.match(/:feishu:group:(oc_[^:]+)/);
+      const chatId = groupMatch ? groupMatch[1] : null;
+
+      // Try to get actual group members to filter bot list
+      let groupBotOpenIds = null;
+      if (chatId) {
+        try {
+          groupBotOpenIds = await getGroupBotOpenIds(chatId);
+        } catch (e) {
+          debugLog(`[before_prompt_build] Failed to get group members: ${e.message}`);
+        }
+      }
+
+      const allOtherBots = Object.entries(botRegistry)
+        .filter(([agentId]) => agentId !== currentAgentId);
+
+      // Split into in-group and not-in-group
+      let inGroupBots = allOtherBots;
+      let notInGroupBots = [];
+
+      if (groupBotOpenIds) {
+        inGroupBots = allOtherBots.filter(([, bot]) => groupBotOpenIds.has(bot.botOpenId));
+        notInGroupBots = allOtherBots.filter(([, bot]) => !groupBotOpenIds.has(bot.botOpenId));
+      }
+
+      if (inGroupBots.length === 0 && notInGroupBots.length === 0) return;
+
+      const botList = inGroupBots
+        .map(([, bot]) => {
           const desc = bot.description ? ` — ${bot.description}` : '';
           const atTag = `<at user_id="${bot.botOpenId}">${bot.botName}</at>`;
           return `- ${atTag}${desc}`;
-        });
+        })
+        .join('\n');
 
-      if (otherBots.length === 0) return;
+      // Note about bots not in this group
+      let missingBotsNote = '';
+      if (notInGroupBots.length > 0) {
+        const missingNames = notInGroupBots.map(([, bot]) => bot.botName).join('、');
+        missingBotsNote = `\n\n💡 以下机器人未在本群中，如需协作请让管理员将它们拉入群聊：${missingNames}`;
+      }
 
-      const botList = otherBots.join('\n');
-      const instruction = `[A2A Bridge — 群内协作规则]\n\n默认行为：\n- 正常情况下不要主动 @ 其他机器人\n- 每次回复最多 @ 1 个机器人\n\n重要：区分"提到"和"请求"\n- 如果你只是在回复中提到某个机器人，直接用它的名字（如"文案助手"），不要用 <at> 标签\n- 只有当你确实需要对方执行任务、回答问题时，才使用 <at> 标签\n- <at> 标签会触发实际的消息转发，所以不要随意使用\n\n触发协作：\n- 当用户提到"群内协作"、"分配任务"、"协作完成"等关键字时，你可以根据任务需要，主动 @ 合适的机器人分配子任务\n- 当用户明确要求你联系某个机器人时，也可以 @\n\n回复规则：\n- 如果你是被其他机器人通过 [A2A Bridge 转发] @ 的（消息类型为"任务请求"），请直接输出你的处理结果（不要使用 message 工具），插件会自动将你的输出发送到群聊中。按转发消息中的指示 @ 回发起者\n- 如果你收到的是"结果回传"类型的消息，说明对方已经完成了你分配的任务并把结果告诉你了，此时绝对不要再 @ 回对方，直接整理结果回复用户即可\n- 如果你是被用户直接 @ 的，不需要 @ 任何机器人（除非用户要求或触发了协作关键字）\n- 如果你 @ 其他机器人只是为了通知或共享信息，不需要对方回复或执行任务，请在消息中明确说明"仅供参考，无需回复"，这样对方就不会 @ 你触发不必要的回传\n\n通知标记（工程化控制）：\n- 如果你 @ 其他机器人只是单向通知、共享结果，不需要对方回复或 @ 你，请在消息中加上 🔕仅通知 标记\n- 插件检测到此标记后，转发时不会要求对方 @ 回你，从根本上避免不必要的回传\n- 示例：「🔕仅通知 <at ...>xxx</at> 排期已确认，按原计划推进即可」\n\n当你确实需要 @ 其他机器人时，必须直接在回复正文中写 <at> 标签，不要使用 feishu_im_user_message 工具。\n\n可用机器人列表（仅供参考，不要主动 @ 他们）：\n${botList}`;
+      const hasNativeA2A = chatId && nativeA2AChats.has(chatId);
+
+      let permissionNote = '';
+      if (!hasNativeA2A) {
+        permissionNote = `\n\n⚠️ 注意：当前群聊尚未检测到飞书原生 bot@bot 投递能力。如果你 @ 其他机器人后对方没有响应，请提醒用户在飞书开发者后台为每个机器人应用开通「接收群聊中机器人@机器人的消息」权限（im:message.group_at_msg.include_bot:readonly）。开通后，机器人之间就可以直接通过 @ 来通信了。`;
+      }
+
+      const instruction = `[A2A — 群内协作规则]
+
+默认行为：
+- 正常情况下不要主动 @ 其他机器人
+- 每次回复最多 @ 1 个机器人
+
+重要：区分"提到"和"请求"
+- 如果你只是在回复中提到某个机器人，直接用它的名字，不要用 <at> 标签
+- 只有当你确实需要对方执行任务、回答问题时，才使用 <at> 标签
+
+触发协作：
+- 当用户提到"群内协作"、"分配任务"、"协作完成"等关键字时，可以根据任务需要主动 @ 合适的机器人
+- 当用户明确要求你联系某个机器人时，也可以 @
+
+@ 的两种类型：
+
+1. 任务型 @（需要对方完成任务并回传结果）：
+   - 直接在回复中用 <at> 标签 @ 对方，说明任务内容
+   - 对方完成后应该 @ 回你汇报结果
+   - 你收到结果后，整理结果回复用户，不要再 @ 回对方
+
+2. 通知型 @（只是告知信息，不需要对方回复）：
+   - 在消息中加上 🔕仅通知 标记
+   - 示例：「🔕仅通知 <at ...>xxx</at> 排期已确认，按原计划推进即可」
+   - 对方收到后不需要 @ 回你
+
+回复规则：
+- 当其他机器人 @ 你并请求你执行任务时，处理完后在回复末尾 @ 回发起者汇报结果
+- 如果对方只是通知你信息（消息中包含🔕仅通知），不需要 @ 回对方
+- 如果对方是把结果回传给你，不要 @ 回对方，直接整理结果回复用户
+- 如果你是被用户直接 @ 的，不需要 @ 任何机器人（除非用户要求或触发了协作关键字）
+
+⚠️ @ 格式要求（非常重要）：
+- 必须使用 <at user_id="ou_xxxx">名字</at> 格式
+- 禁止使用 @名字 这种明文写法，明文写法不会触发飞书的 @ 投递
+- 示例：<at user_id="ou_abc123">mac-前端</at> 请帮忙实现这个页面
+
+${inGroupBots.length > 0 ? `本群中可用的机器人（仅供参考，不要主动 @ 他们）：\n${botList}` : '本群中暂无其他可协作的机器人。'}${missingBotsNote}${permissionNote}`;
+
+      debugLog(`[before_prompt_build] Injecting bot list for agent=${currentAgentId}, inGroup=${inGroupBots.length}, notInGroup=${notInGroupBots.length}, hasNativeA2A=${hasNativeA2A}`);
 
       return { appendSystemContext: instruction };
     });
 
     // ========================================================================
-    // Hook 2: llm_output — 检测 <at> 标签，转发给目标 bot
-    // ========================================================================
-    api.on('llm_output', (event, ctx) => {
-      debugLog(`[llm_output] FIRED — agentId=${ctx.agentId}, channelId=${ctx.channelId}, runId=${ctx.runId}, sessionKey=${ctx.sessionKey}`);
-
-      if (!ctx.agentId || !agentIdSet.has(ctx.agentId)) {
-        debugLog(`[llm_output] SKIP: agentId=${ctx.agentId} not in registry`);
-        return;
-      }
-
-      // Only process feishu group sessions
-      const sessionKey = ctx.sessionKey || '';
-      const groupMatchEarly = sessionKey.match(/:feishu:group:(oc_[^:]+)(.*)?$/);
-      if (!groupMatchEarly) {
-        debugLog(`[llm_output] SKIP: not a feishu group session`);
-        return;
-      }
-
-      // Extract group chat ID early (needed for both auto-send and forwarding)
-      const chatId = groupMatchEarly[1];
-      const threadSuffix = groupMatchEarly[2] || '';
-
-      // Deduplicate: only forward once per runId
-      const runId = ctx.runId;
-      if (runId && forwardedRuns.has(runId)) {
-        debugLog(`[llm_output] SKIP: runId=${runId} already forwarded`);
-        return;
-      }
-
-      const fullText = (event.assistantTexts || []).join('\n');
-      if (!fullText) return;
-
-      debugLog(`[llm_output] fullText length=${fullText.length}, first200=${fullText.substring(0, 200)}`);
-
-      // Auto-send to Feishu for A2A-triggered sessions (heartbeat-woken bots)
-      // These sessions have channelId=cron-event, so output won't reach Feishu automatically
-      const isA2ASession = chainDepthMap.has(sessionKey);
-      if (isA2ASession) {
-        const bot = botRegistry[ctx.agentId];
-        if (bot) {
-          const acct = feishuAccounts[bot.accountId];
-          if (acct?.appId && acct?.appSecret) {
-            (async () => {
-              try {
-                const token = await getTenantToken(acct.appId, acct.appSecret, feishuDomain);
-                await sendFeishuMessage(token, chatId, fullText, feishuDomain);
-                debugLog(`[llm_output] Auto-sent A2A response to chat=${chatId} as ${bot.botName}`);
-              } catch (e) {
-                debugLog(`[llm_output] Failed to auto-send A2A response: ${e.message}`);
-              }
-            })();
-          }
-        }
-      }
-      // Detect <at> tags targeting other bots
-      const atTagRegex = /<at user_id="([^"]+)">([^<]+)<\/at>/g;
-      let match;
-      const forwardTargets = [];
-      const seenAgentIds = new Set();
-
-      while ((match = atTagRegex.exec(fullText)) !== null) {
-        const targetOpenId = match[1];
-        const targetBot = botOpenIdToAgentMap.get(targetOpenId);
-        if (targetBot && targetBot.agentId !== ctx.agentId && !seenAgentIds.has(targetBot.agentId)) {
-          forwardTargets.push(targetBot);
-          seenAgentIds.add(targetBot.agentId);
-        }
-      }
-
-      // Also detect plain @botName text
-      for (const [agentId, bot] of Object.entries(botRegistry)) {
-        if (agentId === ctx.agentId || seenAgentIds.has(agentId)) continue;
-        const flexPattern = escapeRegExp(bot.botName).replace(/-/g, '-?');
-        const pattern = new RegExp('@' + flexPattern, 'g');
-        if (pattern.test(fullText)) {
-          forwardTargets.push({ agentId, ...bot });
-          seenAgentIds.add(agentId);
-        }
-      }
-
-      debugLog(`[llm_output] forwardTargets count=${forwardTargets.length}, targets=${forwardTargets.map(t=>t.agentId).join(',')}`);
-      if (forwardTargets.length === 0) return;
-
-      // Limit: only forward to bots that were explicitly @-ed via <at> tag (max 3)
-      // This prevents LLM from spamming all bots when it uses plain @botName
-      if (forwardTargets.length > 3) {
-        debugLog(`[llm_output] Too many targets (${forwardTargets.length}), trimming to first 3`);
-        forwardTargets.length = 3;
-      }
-
-      // Check chain depth
-      const currentDepth = (chainDepthMap.get(sessionKey) ?? 0) + 1;
-      if (currentDepth > maxChainDepth) {
-        log.warn(`[feishu-bot-chat] Chain depth exceeded (${currentDepth} > ${maxChainDepth}), skipping forward`);
-        return;
-      }
-
-      // Mark as forwarded
-      if (runId) forwardedRuns.add(runId);
-      if (forwardedRuns.size > 100) {
-        const iter = forwardedRuns.values();
-        for (let i = 0; i < 50; i++) forwardedRuns.delete(iter.next().value);
-      }
-
-      const rt = api.runtime;
-      if (!rt?.system) {
-        debugLog(`[llm_output] FATAL: api.runtime.system not available`);
-        return;
-      }
-
-      for (const target of forwardTargets) {
-        const targetSessionKey = `agent:${target.agentId}:feishu:group:${chatId}${threadSuffix}`;
-        chainDepthMap.set(targetSessionKey, currentDepth);
-
-        const senderBot = botRegistry[ctx.agentId];
-        const senderName = senderBot ? senderBot.botName : ctx.agentId;
-
-        // depth=1: 初始任务请求，目标处理完后需要 @ 回发起者
-        // depth>1: 结果回传，目标收到后直接整理结果，不要再 @ 回去
-        // 🔕仅通知 / 🚫回传: 发起者明确标记不需要回传
-        const isResultReturn = currentDepth > 1;
-        const isNotifyOnly = /🔕仅通知|🚫回传/.test(fullText);
-        let contextMessage;
-        if (isResultReturn || isNotifyOnly) {
-          const label = isNotifyOnly ? '仅通知' : '结果回传';
-          contextMessage = `[A2A Bridge 转发 — ${label}] 来自「${senderName}」的消息：\n\n${fullText}\n\n${isNotifyOnly ? '对方标记了🔕仅通知，表示这条消息仅供参考，不需要你回复或 @ 回对方。请阅读后自行处理即可。' : '对方已完成你之前分配的任务，请直接整理结果回复用户，不要再 @ 回对方。'}`;
-        } else {
-          const senderAtTag = senderBot?.botOpenId ? `<at user_id="${senderBot.botOpenId}">${senderName}</at>` : senderName;
-          contextMessage = `[A2A Bridge 转发 — 任务请求] 来自「${senderName}」在群聊中的消息：\n\n${fullText}\n\n请直接输出你的处理结果（不要使用 message 工具），在回复末尾 @ 回发起者 ${senderAtTag}。插件会自动将你的输出发送到群聊中。\n\n注意：插件已代你发送了确认消息"✍️ 收到，马上处理"，你只需输出完整的处理结果即可。`;
-        }
-
-        debugLog(`[llm_output] Forwarding to ${target.agentId}, sessionKey=${targetSessionKey}, depth=${currentDepth}`);
-        log.info(`[feishu-bot-chat] Forwarding to ${target.agentId}, chatId=${chatId}, depth=${currentDepth}`);
-
-        try {
-          rt.system.enqueueSystemEvent(contextMessage, {
-            sessionKey: targetSessionKey,
-            contextKey: 'cron:a2a-bridge',
-          });
-
-          // Send immediate confirmation message as the target bot
-          // Delay to let the sender's streaming message arrive first
-          (async () => {
-            try {
-              await new Promise(r => setTimeout(r, 3000));
-              const acct = feishuAccounts[target.accountId];
-              if (acct?.appId && acct?.appSecret) {
-                const token = await getTenantToken(acct.appId, acct.appSecret, feishuDomain);
-                await sendFeishuMessage(token, chatId, `✍️ 收到，马上处理`, feishuDomain);
-                debugLog(`[llm_output] Sent confirmation as ${target.botName} to chat=${chatId}`);
-              } else {
-                debugLog(`[llm_output] No credentials for ${target.accountId}, skipping confirmation`);
-              }
-            } catch (e) {
-              debugLog(`[llm_output] Failed to send confirmation for ${target.agentId}: ${e.message}`);
-            }
-          })();
-
-          const wakeOpts = {
-            agentId: target.agentId,
-            sessionKey: targetSessionKey,
-            reason: 'hook:a2a-bridge-forward',
-            heartbeat: { target: 'last' },
-            deps: { getQueueSize: () => 0 },
-          };
-
-          // Fire-and-forget async retry loop
-          (async () => {
-            const maxWaitMs = 30000;
-            const retryDelayMs = 2000;
-            const startedAt = Date.now();
-            let attempts = 0;
-
-            for (;;) {
-              attempts++;
-              try {
-                const result = await rt.system.runHeartbeatOnce(wakeOpts);
-                debugLog(`[llm_output] runHeartbeatOnce for ${target.agentId}: status=${result?.status}, reason=${result?.reason} (attempt ${attempts})`);
-                if (!result || result.status !== 'skipped' || result.reason !== 'requests-in-flight') break;
-              } catch (e) {
-                debugLog(`[llm_output] runHeartbeatOnce error for ${target.agentId}: ${e.message}`);
-                break;
-              }
-
-              if (Date.now() - startedAt > maxWaitMs) {
-                debugLog(`[llm_output] runHeartbeatOnce timeout for ${target.agentId} after ${attempts} attempts, falling back`);
-                rt.system.requestHeartbeatNow({
-                  agentId: target.agentId,
-                  sessionKey: targetSessionKey,
-                  reason: 'hook:a2a-bridge-forward',
-                });
-                break;
-              }
-
-              await new Promise(r => setTimeout(r, retryDelayMs));
-            }
-          })();
-
-          log.info(`[feishu-bot-chat] Forwarded to ${target.agentId} via enqueue+runHeartbeatOnce`);
-        } catch (err) {
-          debugLog(`[llm_output] ERROR forwarding to ${target.agentId}: ${err.message}`);
-          log.error(`[feishu-bot-chat] Failed to forward to ${target.agentId}: ${err.message}`);
-        }
-      }
-    });
-
-    // ========================================================================
-    // Hook 3: message_sending — @botName → <at> 标签替换
+    // Hook 2: message_sending — @botName → <at> 标签替换
     // ========================================================================
     api.on('message_sending', (event, ctx) => {
+      debugLog(`[message_sending] channelId=${ctx.channelId}, agentId=${ctx.agentId}, contentLength=${event.content?.length}, content=${event.content?.substring(0, 200)}`);
+
       if (ctx.channelId !== 'feishu') return;
 
       let content = event.content;
@@ -609,6 +403,7 @@ const plugin = {
           `<at user_id="${bot.botOpenId}">${bot.botName}</at>`
         );
         if (newContent !== content) {
+          debugLog(`[message_sending] Replaced @${bot.botName} with <at> tag`);
           content = newContent;
           log.info(`[feishu-bot-chat] Replaced @${bot.botName} with <at> tag`);
         }
@@ -621,31 +416,53 @@ const plugin = {
       );
 
       if (content !== event.content) {
+        debugLog(`[message_sending] Final content (first 300 chars): ${content.substring(0, 300)}`);
         return { content };
       }
     });
 
     // ========================================================================
-    // Hook 4: inbound_claim — 人类消息重置链深度
+    // Hook 3: inbound_claim — 过滤 bot 消息 + 检测原生投递 + 注入发送者信息
     // ========================================================================
     api.on('inbound_claim', (event, ctx) => {
+      debugLog(`[inbound_claim] event=${JSON.stringify({ channel: event.channel, isGroup: event.isGroup, senderId: event.senderId, wasMentioned: event.wasMentioned, conversationId: event.conversationId, content: event.content?.substring?.(0, 200) })}`);
+
       if (event.channel !== 'feishu' || !event.isGroup) return;
 
       const isBotSender = botOpenIdSet.has(event.senderId);
 
       if (!isBotSender) {
-        for (const [key] of chainDepthMap) {
-          if (key.includes(event.conversationId)) {
-            chainDepthMap.delete(key);
-          }
-        }
+        debugLog(`[inbound_claim] Human message from ${event.senderId}, passing through`);
         return;
       }
 
-      if (event.wasMentioned !== true) {
-        log.info(`[feishu-bot-chat] Swallowing bot message (not mentioned) from ${event.senderId}`);
-        return { handled: true };
+      // A bot message arrived via Feishu webhook with wasMentioned=true
+      // This confirms native bot-to-bot delivery is working for this chat
+      if (event.wasMentioned === true) {
+        const chatId = event.conversationId;
+        if (chatId && !nativeA2AChats.has(chatId)) {
+          nativeA2AChats.add(chatId);
+          debugLog(`[inbound_claim] Native bot-to-bot delivery confirmed for chat=${chatId} (sender=${event.senderId})`);
+          log.info(`[feishu-bot-chat] Native A2A delivery confirmed for chat=${chatId}`);
+        }
+
+        // Inject sender bot identity so the receiving agent knows how to @ back
+        const senderBot = botOpenIdToAgentMap.get(event.senderId);
+        if (senderBot && event.content) {
+          const senderAtTag = `<at user_id="${senderBot.botOpenId}">${senderBot.botName}</at>`;
+          const senderInfo = `[来自机器人「${senderBot.botName}」— 如需 @ 回对方请使用：${senderAtTag}]\n\n`;
+          debugLog(`[inbound_claim] Injecting sender info: ${senderBot.botName} (${senderBot.botOpenId})`);
+          return { content: senderInfo + event.content };
+        }
+
+        debugLog(`[inbound_claim] Bot @mention from ${event.senderId}, allowing through`);
+        return;
       }
+
+      // Bot message without mention — swallow it
+      debugLog(`[inbound_claim] Swallowing bot message (not mentioned) from ${event.senderId}`);
+      log.info(`[feishu-bot-chat] Swallowing bot message (not mentioned) from ${event.senderId}`);
+      return { handled: true };
     });
 
     if (_registerCount === 0) {
