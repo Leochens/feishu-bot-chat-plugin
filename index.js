@@ -233,6 +233,15 @@ const plugin = {
         pageToken = json.data.page_token || '';
       }
 
+      const knownBotCount = botOpenIdSet.size;
+      const foundCount = memberOpenIds.size;
+
+      if (knownBotCount > 1 && foundCount <= 1) {
+        debugLog(`[getGroupBotOpenIds] chat=${chatId} returned only ${foundCount} bots but registry has ${knownBotCount} — likely permission issue, skipping cache`);
+        log.warn(`[feishu-bot-chat] Group member API returned suspiciously few bots (${foundCount}/${knownBotCount}) for chat=${chatId} — token may lack im:chat or im:chat.member:readonly permission`);
+        return null;
+      }
+
       groupMemberCache.set(chatId, { botOpenIds: memberOpenIds, fetchedAt: Date.now() });
       debugLog(`[getGroupBotOpenIds] chat=${chatId} has ${memberOpenIds.size} bots: ${[...memberOpenIds].join(', ')}`);
       return memberOpenIds;
