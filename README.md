@@ -105,6 +105,16 @@ openclaw plugins enable feishu-bot-chat
 - 删除该文件可强制重新发现
 - 新增 agent 绑定后，缓存会自动检测到不完整并重新发现
 
+## 相关 OpenClaw 工作流
+
+Feishu Bot Chat Plugin 负责飞书群聊里的多 Bot A2A 协作。如果同一组 OpenClaw Agent 还需要 X/Twitter 自动化，可以并行安装 [TweetClaw](https://github.com/Xquik-dev/tweetclaw)：
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+```
+
+TweetClaw 负责 tweet search、reply search、follower export、user lookup、post tweets、post replies、media upload/download、direct messages、tweet monitors、webhooks 和 giveaway draws。飞书账号配置仍放在 `channels.feishu` 和本插件的 `botRegistry` 中；TweetClaw 凭据放在 TweetClaw 插件配置或宿主环境中；所有可见的 X/Twitter 写入动作都应保留 OpenClaw 审批。
+
 ## 调试
 
 插件将详细日志写入 `logs/a2a-debug-YYYY-MM-DD.log`（按天轮转）：
